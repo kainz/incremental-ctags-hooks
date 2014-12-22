@@ -1,0 +1,55 @@
+
+# vim:filetype=zsh
+
+### This is designed to be sourced from a parent script.
+# Compatibility: bash 4+, zsh 5+
+# Current features: shell exception reporting
+
+if [ -n "$ZSH_VERSION" ]; then
+    zmodload zsh/parameter
+    function TRAPDEBUG() {
+        LOCAL_OPTIONS=1
+        set +o xtrace
+        local IFS
+        ERR_COMMAND="$ZSH_DEBUG_CMD"
+        IFS=":" ERR_LINENO="${funcfiletrace[1][(w)2]}"
+    }
+    function TRAPERR() {
+        local err=$?
+        set +o xtrace
+        echo "Error in ${funcfiletrace[1]}. '${ERR_COMMAND}' exited with status $err"
+        echo ${funcfiletrace[@]}
+        if [[ ${#funcfiletrace[@]} -gt 1 ]]; then
+            for ((i=1;i<=${#funcfiletrace[@]};i++)); do
+                echo "$((i - 1)): ${funcfiletrace[$i]} (${functrace[$i]})(...)"
+            done
+        fi
+        echo "Exiting with status ${err}"
+        exit $err
+    }
+    set -o KSH_ARRAYS # because arrays from 1 are silly
+elif [ -n "$BASH_VERSION" ]; then
+#bashish
+    function errexit() {
+        local err=$?
+        set +o xtrace
+        local code="${1:-1}"
+        echo "Error in ${BASH_SOURCE[1]}:${BASH_LINENO[0]}. '${BASH_COMMAND}' exited with status $err"
+        # Print out the stack trace described by $function_stack  
+        if [ ${#FUNCNAME[@]} -gt 2 ]
+        then
+            echo "Call tree:"
+            for ((i=1;i<${#FUNCNAME[@]};i++))
+            do
+                echo " $i: ${BASH_SOURCE[$i+1]}:${BASH_LINENO[$i]} ${FUNCNAME[$i]}(...)"
+            done
+        fi
+        echo "Exiting with status ${code}"
+        exit "${code}"
+    }
+    trap 'errexit' ERR
+    set -o errtrace
+else
+    echo "Your shell, $SHELL, is probably not supported by these scripts. If it really is, go ahead and add detection code to util-functions."
+    exit 1
+fi

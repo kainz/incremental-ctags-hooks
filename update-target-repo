@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+# vim:filetype=zsh
+#
+
+# run in users std shell and get our preamble
+[ "$_" = "$SHELL" -o -n "$_INSCRIPT" ] || _INSCRIPT=1 exec "$SHELL" "$0" "$@" #run in user's std shell
+unset _INSCRIPT
+set -e
+preambles=( "$(dirname $0)/../util-functions" "$(dirname $0)/util-functions" )
+for i in "${preambles[@]}"; do
+    [ -r "$i" ] && source "$i"
+done
+set +e
+
+[[ -n "$1" && -d "$1" ]] || ( echo "usage: update-target-repo /path/to/tree/.git" )
+
+TGT="${1%/}/"
+
+[[ -d "$TGT/.git/" ]] && TGT="$TGT/.git/"
+
+rsync -avP --exclude=\*.swp "$(dirname $0)/" "$TGT"

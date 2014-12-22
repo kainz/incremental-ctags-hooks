@@ -1,0 +1,144 @@
+#!/usr/bin/env sh
+# vim:filetype=zsh
+#
+
+# run in users std shell and get our preamble
+[ "$_" = "$SHELL" -o -n "$_INSCRIPT" ] || _INSCRIPT=1 exec "$SHELL" "$0" "$@" #run in user's std shell
+unset _INSCRIPT
+set -e
+preambles=( "$(dirname $0)/../util-functions" "$(dirname $0)/util-functions" )
+for i in "${preambles[@]}"; do
+    [ -r "$i" ] && source "$i"
+done
+set +e
+
+dir="`git rev-parse --git-dir`"
+rev="$(git rev-parse HEAD)"
+if [[ -r "$dir/tags.last" ]]; then
+    read last < "$dir/tags.last"
+else
+    last=4b825dc642cb6eb9a060e54bf8d69288fbee4904 # magic empty tree obj
+fi
+tagfile="$dir/$$.tags"
+
+function handle_diff() {
+    local tagfile="$1"
+    shift
+    declare -a newfiles
+    declare -a sedlines
+
+    clear_tag_for_file() {
+        sedlines+=( "ent.key=\"$1\"; hsearch(ent, ENTER);" )
+    }
+
+
+    if [[ $1 == "--xverbose" ]]; then
+        verbose=1
+        shift
+    fi
+
+    while read -r dstatus filename; do
+        case $dstatus in
+            R*)
+                files=($filename)
+                [[ -n $verbose ]] && echo "Renamed ${files[0]} to ${files[1]} because $dstatus"
+                clear_tag_for_file $filename $tagfile
+                [[ -f ${files[1]} ]] && newfiles+=( ${files[1]} )
+                ;;
+            X|D) 
+                [[ -n $verbose ]] && echo "Removing $filename from $tagfile because state $dstatus" >&2
+                clear_tag_for_file $filename $tagfile
+                ;;
+            M)
+                [[ -n $verbose ]] && echo "Removing/Adding $filename because state $dstatus"
+                clear_tag_for_file $filename $tagfile
+                [[ -f $filename ]] && newfiles+=( $filename )
+                ;;
+            A|M|T) 
+                [[ -n $verbose ]] && echo "Adding $filename because state $dstatus"
+                [[ -f $filename ]] && newfiles+=( $filename )
+                ;;
+            *) 
+                ;;
+        esac
+    done < <(git diff --name-status "$last..$rev")
+    echo "#include <string.h>
+        #include <stdio.h>
+        #include <stdlib.h>
+        #include <search.h>
+        #include <string.h>
+        #include <assert.h>
+        
+        #define DEFBUF 16
+
+        void main(void) { hcreate(${#sedlines[@]}); ENTRY ent={.key=NULL,.data=NULL};" > testout.c
+
+    sedlines+=( "
+    char *s = malloc(DEFBUF); // read buffer
+    char *t = malloc(DEFBUF); // token search buffer
+    size_t buf = DEFBUF;
+    s[buf-1] = ' '; // this will become \\\\0 if we hit end of buf
+    while (fgets(s, buf, stdin)) {
+        while (s[buf-1] == '\\\\0') { // if we overrun our buffer read, realloc and append.
+            size_t pos = buf;
+            size_t grow = buf * 2;
+            buf += grow;
+            s = realloc(s, buf);
+            assert( s != NULL );
+            t = realloc(t, buf);
+            assert( t != NULL );
+            char *reget = &s[pos-1];
+            s[buf-1]=' ';  // this sets up a sentry at the last valid char in buf
+                           // fgets will turn this into \\\\0 if it would overrun.
+            fgets(reget, grow + 1, stdin);
+        }
+        char *m, *m2; // lightweight token locations
+        if ((m = strchr(s,'\\\\t')) && strlen(s) > m-s+3)
+            m2 = strchr(m+1,'\\\\t');
+        if (m != NULL && m2 != NULL) { // found token points?
+            memcpy(t,s,m2-m); // because we want to be nondestructive, the easy way.
+            t[m2-m]='\\\\0';
+            ent.key = t;
+            if (hsearch(ent, FIND) != NULL) // magic +3 because reltags
+                continue;
+            }
+            fputs(s, stdout);
+        }; exit(0);}" )
+    for i in ${sedlines[@]}; do
+        echo $i
+    done >> testout.c
+    gcc -march=native -mtune=native --std=c99 testout.c && rm testout.c
+    ./a.out < "$tagfile" > "${tagfile}.1" 
+    [[ $? -eq 0 ]] && mv -v "${tagfile}.1" "${tagfile}"
+    rm a.out
+    for i in ${newfiles[@]}; do
+        echo $i
+    done | ctags --tag-relative -L - -a -f "$tagfile" "$@" >&2
+}
+
+function initial-tags() {
+    local tagfile="$1"
+    shift
+    git ls-files | ctags --tag-relative -L - -f "$tagfile" "$@" && mv "$tagfile" "$dir/tags"
+    echo $rev > "$dir/tags.last"
+    exit 0
+}
+
+function doexit() {
+    echo "ctagger finished at line ${funcfiletrace[@]}"
+    rm -vf "$tagfile" || true
+    rm -vf "a.out testout.c" || true
+}
+
+function main() {
+    trap 'doexit>&2' EXIT
+
+    [[ $1 == "--xverbose" ]] || exec 2> >(logger -t "githook.ctagsupdate[$$]") || true
+
+    cp "$dir/tags" "$tagfile" || initial-tags "$tagfile" "$@"
+    [[ $1 == "--xverbose" ]] && echo "ctagging with diff of $last..$rev"
+    handle_diff "$tagfile" "$@" && mv -v "$tagfile" "$dir/tags"
+    echo $rev > "$dir/tags.last"
+}
+
+main "$@"
