@@ -12,4 +12,4 @@ for i in "${preambles[@]}"; do
 done
 set +e
 
-.git/hooks/ctags
+$(git rev-parse --git-dir)/hooks/ctags
