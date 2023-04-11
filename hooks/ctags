@@ -71,7 +71,7 @@ function handle_diff() {
         
         #define DEFBUF 16
 
-        void main(void) { hcreate(${#sedlines[@]}); ENTRY ent={.key=NULL,.data=NULL};" > testout.c
+        int main(void) { hcreate(${#sedlines[@]}); ENTRY ent={.key=NULL,.data=NULL};" > testout.c
 
     sedlines+=( "
     char *s = malloc(DEFBUF); // read buffer
