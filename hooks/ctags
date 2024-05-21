@@ -27,6 +27,8 @@ function handle_diff() {
     declare -a newfiles
     declare -a sedlines
 
+    sedlines+=( "" )
+
     clear_tag_for_file() {
         sedlines+=( "ent.key=\"$1\"; hsearch(ent, ENTER);" )
     }
@@ -77,9 +79,9 @@ function handle_diff() {
     char *s = malloc(DEFBUF); // read buffer
     char *t = malloc(DEFBUF); // token search buffer
     size_t buf = DEFBUF;
-    s[buf-1] = ' '; // this will become \\\\0 if we hit end of buf
+    s[buf-1] = ' '; // this will become \0 if we hit end of buf
     while (fgets(s, buf, stdin)) {
-        while (s[buf-1] == '\\\\0') { // if we overrun our buffer read, realloc and append.
+        while (s[buf-1] == '\0') { // if we overrun our buffer read, realloc and append.
             size_t pos = buf;
             size_t grow = buf * 2;
             buf += grow;
@@ -89,23 +91,24 @@ function handle_diff() {
             assert( t != NULL );
             char *reget = &s[pos-1];
             s[buf-1]=' ';  // this sets up a sentry at the last valid char in buf
-                           // fgets will turn this into \\\\0 if it would overrun.
+                           // fgets will turn this into \0 if it would overrun.
             fgets(reget, grow + 1, stdin);
         }
         char *m, *m2; // lightweight token locations
-        if ((m = strchr(s,'\\\\t')) && strlen(s) > m-s+3)
-            m2 = strchr(m+1,'\\\\t');
+        if ((m = strchr(s,'\t')) && strlen(s) > m-s+3)
+            m2 = strchr(m+1,'\t');
         if (m != NULL && m2 != NULL) { // found token points?
             memcpy(t,s,m2-m); // because we want to be nondestructive, the easy way.
-            t[m2-m]='\\\\0';
+            t[m2-m]='\0';
             ent.key = t;
             if (hsearch(ent, FIND) != NULL) // magic +3 because reltags
                 continue;
             }
             fputs(s, stdout);
         }; exit(0);}" )
-    for i in ${sedlines[@]}; do
-        echo $i
+    for i in "${sedlines[@]}"; do
+        [[ -n $verbose ]] && echo "$i" >&2
+        echo "$i"
     done >> testout.c
     gcc -march=native -mtune=native --std=c99 testout.c && rm testout.c
     ./a.out < "$tagfile" > "${tagfile}.1" 
